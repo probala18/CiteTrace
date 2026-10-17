@@ -5,6 +5,8 @@
 **/.env
 **/.env.local
 **/.env.*.local
+.vercel
+**/.vercel
 scratch/
 **/scratch/
 **/node_modules/
