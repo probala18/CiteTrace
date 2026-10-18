@@ -38,39 +38,61 @@ export async function jsonCompletion(
 ): Promise<any> {
   const apiKey = apiKeyOverride || process.env.OPENAI_API_KEY;
   const baseUrl = (baseUrlOverride || process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1").replace(/\/$/, "");
-  const model = modelOverride || process.env.LLM_MODEL || "openrouter/free";
+  const rawModel = modelOverride || process.env.LLM_MODEL || "openrouter/free";
+  // Map retired or defunct models to active ones
+  const mappedModel = rawModel === "google/gemini-2.0-flash-exp:free" ? "openrouter/free" : rawModel;
 
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is not configured.");
+  const candidateModels = Array.from(new Set([
+    mappedModel,
+    "openrouter/free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "google/gemini-2.0-flash-001",
+  ]));
+
+  let lastErrorText = "";
+
+  for (const targetModel of candidateModels) {
+    try {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: targetModel,
+          temperature: 0.1,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+        }),
+      });
+
+      if (!res.ok) {
+        lastErrorText = await res.text();
+        // If 404 (endpoint not found) or 429 (rate limit), continue to fallback model
+        if (res.status === 404 || res.status === 429 || lastErrorText.includes("No endpoints found")) {
+          console.warn(`Model "${targetModel}" returned ${res.status}. Attempting fallback...`);
+          continue;
+        }
+        throw new Error(`LLM provider returned ${res.status}: ${lastErrorText.slice(0, 180)}`);
+      }
+
+      const data = await res.json();
+      const choice = data.choices?.[0]?.message?.content;
+      if (!choice) {
+        continue;
+      }
+
+      return extractJson(choice);
+    } catch (err: any) {
+      if (err.message && !err.message.includes("LLM provider returned")) {
+        lastErrorText = err.message;
+      }
+    }
   }
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: model,
-      temperature: 0.1,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`LLM provider returned ${res.status}: ${errorBody.slice(0, 180)}`);
-  }
-
-  const data = await res.json();
-  const choice = data.choices?.[0]?.message?.content;
-  if (!choice) {
-    throw new Error("LLM returned an empty response.");
-  }
-
-  return extractJson(choice);
+  throw new Error(`LLM call failed for all candidate models (${candidateModels.join(", ")}): ${lastErrorText.slice(0, 180)}`);
 }

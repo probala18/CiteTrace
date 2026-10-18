@@ -1339,7 +1339,7 @@ export default function Home() {
                     className="settings-input"
                     value={tempConfig.llmModel}
                     onChange={(e) => setTempConfig({ ...tempConfig, llmModel: e.target.value })}
-                    placeholder="openrouter/free or google/gemini-2.0-flash-exp:free"
+                    placeholder="openrouter/free or meta-llama/llama-3.3-70b-instruct:free"
                   />
                 </div>
                 <div className="settings-presets-row">
@@ -1354,16 +1354,16 @@ export default function Home() {
                   <button
                     type="button"
                     className="settings-preset-chip"
-                    onClick={() => setTempConfig({ ...tempConfig, llmModel: "google/gemini-2.0-flash-exp:free" })}
+                    onClick={() => setTempConfig({ ...tempConfig, llmModel: "meta-llama/llama-3.3-70b-instruct:free" })}
                   >
-                    gemini-2.0-flash
+                    llama-3.3-70b
                   </button>
                   <button
                     type="button"
                     className="settings-preset-chip"
-                    onClick={() => setTempConfig({ ...tempConfig, llmModel: "meta-llama/llama-3.3-70b-instruct:free" })}
+                    onClick={() => setTempConfig({ ...tempConfig, llmModel: "google/gemini-2.0-flash-001" })}
                   >
-                    llama-3.3-70b
+                    gemini-2.0-flash
                   </button>
                 </div>
                 <div className="settings-field-help">
