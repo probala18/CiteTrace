@@ -175,6 +175,7 @@ export default function Home() {
   // UI state
   const [theme, setTheme] = useState<"light" | "dark">("dark");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
 
   // Settings & Configuration state
   const [config, setConfig] = useState<BackendConfig>(DEFAULT_CONFIG);
@@ -277,6 +278,74 @@ export default function Home() {
   const activeDoc = documents.find((d) => d.id === selectedDocId);
   const activeMode = ANSWER_MODES.find((m) => m.id === answerMode) || ANSWER_MODES[0];
   const resultMode = result?.mode ? ANSWER_MODES.find((m) => m.id === result.mode) : activeMode;
+
+  const allCitations: Citation[] = result
+    ? Array.from(
+        new Map(
+          (result.claims || [])
+            .flatMap((c) => c.citations || [])
+            .concat(result.retrieved_evidence || [])
+            .map((c) => [c.evidence_id, c])
+        ).values()
+      )
+    : [];
+
+  const renderAnswerText = (text: string) => {
+    const paragraphs = text.split(/\n+/).filter(Boolean);
+    return (
+      <div className="answer-paragraphs">
+        {paragraphs.map((p, pIdx) => {
+          const parts = p.split(/(\[[^\]]+\])/g);
+          return (
+            <p key={pIdx} className="answer-para" style={{ marginBottom: pIdx < paragraphs.length - 1 ? 12 : 0 }}>
+              {parts.map((part, partIdx) => {
+                if (part.startsWith("[") && part.endsWith("]")) {
+                  const inner = part.slice(1, -1).trim();
+                  if (inner === "Supported") {
+                    return <span key={partIdx} className="inline-status-badge supported">Supported</span>;
+                  }
+                  if (inner === "Partially supported") {
+                    return <span key={partIdx} className="inline-status-badge partially_supported">Partially supported</span>;
+                  }
+                  if (inner === "Contradicted by evidence" || inner === "Contradicted") {
+                    return <span key={partIdx} className="inline-status-badge contradicted">Contradicted</span>;
+                  }
+                  if (inner === "Unverified") {
+                    return <span key={partIdx} className="inline-status-badge unverified">Unverified</span>;
+                  }
+
+                  const matched = allCitations.find((c) =>
+                    inner.toLowerCase().includes(c.filename.toLowerCase()) ||
+                    (c.evidence_id && inner.includes(c.evidence_id))
+                  );
+
+                  return (
+                    <button
+                      key={partIdx}
+                      type="button"
+                      className="inline-cite-badge"
+                      onClick={() => {
+                        if (matched) {
+                          setActiveCitation(matched);
+                        } else if (allCitations[0]) {
+                          setActiveCitation(allCitations[0]);
+                        }
+                      }}
+                      title="Click to inspect citation passage"
+                    >
+                      <FileText size={11} />
+                      <span>{inner}</span>
+                    </button>
+                  );
+                }
+                return <span key={partIdx}>{part}</span>;
+              })}
+            </p>
+          );
+        })}
+      </div>
+    );
+  };
 
   // Ask Question handler
   async function submitQuery(q?: string, targetDocId?: string | null, modeToUse?: AnswerMode) {
@@ -924,8 +993,71 @@ export default function Home() {
                     </span>
                   </div>
 
-                  {/* Answer Text */}
-                  <div className="answer-body-text">{result.answer}</div>
+                  {/* Answer Text with Interactive Citations */}
+                  <div className="answer-body-text">
+                    {renderAnswerText(result.answer)}
+                  </div>
+
+                  {/* Cited Sources & References Grid */}
+                  {allCitations.length > 0 && (
+                    <div className="cited-sources-summary">
+                      <div className="cited-sources-header">
+                        <div className="cited-sources-title">
+                          <BookOpen size={15} color="var(--lime-primary)" />
+                          <span>Cited Evidence &amp; Sources</span>
+                          <span className="cited-sources-count">{allCitations.length} reference{allCitations.length === 1 ? "" : "s"}</span>
+                        </div>
+                        <span className="cited-sources-hint">Click any source card to inspect the full quoted excerpt</span>
+                      </div>
+
+                      <div className="cited-sources-grid">
+                        {allCitations.map((cite, idx) => (
+                          <div
+                            key={`${cite.evidence_id}-${idx}`}
+                            className="cited-source-card"
+                            onClick={() => setActiveCitation(cite)}
+                            title="Click to view full passage in Evidence Inspector"
+                          >
+                            <div className="cited-source-card-top">
+                              <div className="cited-source-file-info">
+                                <FileText size={14} className="cited-source-icon" />
+                                <span className="cited-source-name" title={cite.filename}>
+                                  {cite.filename}
+                                </span>
+                              </div>
+                              {cite.retrieval_score != null && (
+                                <span className="cited-source-match">
+                                  {(cite.retrieval_score * 100).toFixed(0)}% MATCH
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="cited-source-meta-row">
+                              {cite.page_number ? (
+                                <span className="cited-source-page-badge">Page {cite.page_number}</span>
+                              ) : cite.heading ? (
+                                <span className="cited-source-page-badge">{cite.heading}</span>
+                              ) : (
+                                <span className="cited-source-page-badge">Excerpt</span>
+                              )}
+                              <span className="cited-source-id">ID: {cite.evidence_id}</span>
+                            </div>
+
+                            <p className="cited-source-snippet">
+                              "{cite.excerpt.slice(0, 140)}{cite.excerpt.length > 140 ? "…" : ""}"
+                            </p>
+
+                            <div className="cited-source-card-footer">
+                              <span className="cited-source-inspect-link">
+                                <span>Inspect Passage</span>
+                                <ArrowUpRight size={12} />
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Warning banner if present */}
                   {result.warning && (
@@ -977,12 +1109,16 @@ export default function Home() {
                           {/* Citations List */}
                           {claim.citations.length > 0 && (
                             <div className="claim-citations-section">
+                              <div className="claim-citations-label">
+                                <ShieldCheck size={13} color="var(--lime-primary)" />
+                                <span>Supporting Evidence Citations ({claim.citations.length})</span>
+                              </div>
                               {claim.citations.map((cite, citeIndex) => (
                                 <div className="citation-box" key={`${cite.evidence_id}-${citeIndex}`}>
                                   <div className="citation-header-row">
                                     <div className="citation-file-info">
                                       <FileText size={13} />
-                                      <span>{cite.filename}</span>
+                                      <span className="citation-filename">{cite.filename}</span>
                                       <span className="citation-meta-span">
                                         {cite.page_number ? `· Page ${cite.page_number}` : cite.heading ? `· ${cite.heading}` : ""}
                                       </span>
@@ -993,19 +1129,30 @@ export default function Home() {
                                         : "SOURCE"}
                                     </span>
                                   </div>
-                                  <blockquote className="citation-quote">{cite.excerpt}</blockquote>
-                                  <button
-                                    className="copy-passage-btn"
-                                    onClick={() => {
-                                      void navigator.clipboard?.writeText(
-                                        `${cite.filename}${cite.page_number ? `, page ${cite.page_number}` : ""}\n${cite.excerpt}`
-                                      );
-                                      setNotice("Copied citation passage to clipboard.");
-                                    }}
-                                  >
-                                    <ArrowDownToLine size={12} />
-                                    <span>Copy passage</span>
-                                  </button>
+                                  <blockquote className="citation-quote">"{cite.excerpt}"</blockquote>
+                                  <div className="citation-actions-row">
+                                    <button
+                                      type="button"
+                                      className="inspect-passage-btn"
+                                      onClick={() => setActiveCitation(cite)}
+                                    >
+                                      <ArrowUpRight size={12} />
+                                      <span>Inspect Full Context</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="copy-passage-btn"
+                                      onClick={() => {
+                                        void navigator.clipboard?.writeText(
+                                          `Source: ${cite.filename}${cite.page_number ? `, Page ${cite.page_number}` : ""}\n\nExcerpt:\n"${cite.excerpt}"`
+                                        );
+                                        setNotice("Copied citation passage to clipboard.");
+                                      }}
+                                    >
+                                      <ArrowDownToLine size={12} />
+                                      <span>Copy passage</span>
+                                    </button>
+                                  </div>
                                 </div>
                               ))}
                             </div>
@@ -1188,6 +1335,99 @@ export default function Home() {
           </div>
         </main>
       </div>
+
+      {/* Evidence Citation Inspector Modal */}
+      {activeCitation && (
+        <div className="settings-modal-backdrop" onClick={() => setActiveCitation(null)}>
+          <div className="citation-modal-card" onClick={(e) => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="citation-modal-header">
+              <div className="citation-modal-title-group">
+                <div className="citation-modal-icon-badge">
+                  <FileText size={20} />
+                </div>
+                <div>
+                  <h3 className="citation-modal-title">{activeCitation.filename}</h3>
+                  <p className="citation-modal-subtitle">
+                    {activeCitation.page_number ? `Page ${activeCitation.page_number}` : (activeCitation.heading || "Document Passage")}
+                    {activeCitation.retrieval_score != null && ` • Relevance Match: ${(activeCitation.retrieval_score * 100).toFixed(0)}%`}
+                  </p>
+                </div>
+              </div>
+              <button
+                className="settings-modal-close"
+                onClick={() => setActiveCitation(null)}
+                title="Close citation preview"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="citation-modal-body">
+              {/* Meta tags row */}
+              <div className="citation-meta-details">
+                <div className="citation-meta-item">
+                  <span className="citation-meta-label">Source Document</span>
+                  <span className="citation-meta-val">{activeCitation.filename}</span>
+                </div>
+                {activeCitation.page_number && (
+                  <div className="citation-meta-item">
+                    <span className="citation-meta-label">Location</span>
+                    <span className="citation-meta-val">Page {activeCitation.page_number}</span>
+                  </div>
+                )}
+                {activeCitation.retrieval_score != null && (
+                  <div className="citation-meta-item">
+                    <span className="citation-meta-label">Hybrid Score</span>
+                    <span className="citation-meta-val lime">{(activeCitation.retrieval_score * 100).toFixed(1)}% Match</span>
+                  </div>
+                )}
+                <div className="citation-meta-item">
+                  <span className="citation-meta-label">Evidence ID</span>
+                  <code className="citation-meta-val mono">{activeCitation.evidence_id}</code>
+                </div>
+              </div>
+
+              {/* Verified Passage Quote Box */}
+              <div className="citation-quote-box">
+                <div className="citation-quote-label">
+                  <BookOpen size={13} color="var(--lime-primary)" />
+                  <span>Exact Quoted Passage from Indexed Source</span>
+                </div>
+                <blockquote className="citation-quote-text">
+                  "{activeCitation.excerpt}"
+                </blockquote>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="citation-modal-footer">
+              <button
+                type="button"
+                className="settings-secondary-btn"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(
+                    `Source: ${activeCitation.filename}${activeCitation.page_number ? `, Page ${activeCitation.page_number}` : ""}\n\n"${activeCitation.excerpt}"`
+                  );
+                  setNotice("Copied passage and source reference to clipboard.");
+                }}
+              >
+                <ArrowDownToLine size={14} />
+                <span>Copy Passage with Citation</span>
+              </button>
+              <button
+                type="button"
+                className="settings-save-btn"
+                onClick={() => setActiveCitation(null)}
+              >
+                <span>Close Inspector</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Settings Modal */}
       {showSettings && (

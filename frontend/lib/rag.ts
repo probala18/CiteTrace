@@ -307,7 +307,14 @@ STRICT GROUNDING & SCHEMA RULES:
         contradicted: "Contradicted by evidence",
         unverified: "Unverified",
       }[c.status];
-      return `${c.claim} [${label}]`;
+
+      const citeParts = c.citations.map((cite) => {
+        const pageText = cite.page_number ? `p. ${cite.page_number}` : (cite.heading || "");
+        return [cite.filename, pageText].filter(Boolean).join(", ");
+      }).filter(Boolean);
+
+      const citeString = citeParts.length > 0 ? ` [${citeParts.join("; ")}]` : "";
+      return `${c.claim}${citeString} [${label}]`;
     })
     .join("\n\n");
 

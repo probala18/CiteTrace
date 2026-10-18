@@ -220,7 +220,12 @@ def answer_question(question: str, top_k: int | None = None, document_id: str | 
             "contradicted": "Contradicted by evidence",
             "unverified": "Unverified",
         }[claim["status"]]
-        lines.append(f"{claim['claim']} [{label}]")
+        cite_parts = []
+        for cite in claim.get("citations", []):
+            page_text = f"p. {cite.page_number}" if cite.get("page_number") else (cite.get("heading") or "")
+            cite_parts.append(", ".join(filter(None, [cite.get("filename"), page_text])))
+        cite_str = f" [{'; '.join(filter(None, cite_parts))}]" if cite_parts else ""
+        lines.append(f"{claim['claim']}{cite_str} [{label}]")
     answer = "\n\n".join(lines)
     warning = llm_warning or (
         None if response_status == "verified" else (
