@@ -188,6 +188,8 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const sidebarFileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const scopeDropdownRef = useRef<HTMLDivElement | null>(null);
+  const modeDropdownRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     try {
@@ -208,6 +210,19 @@ export default function Home() {
         setTempConfig((prev) => ({ ...prev, ...parsed }));
       }
     } catch {}
+
+    function handleClickOutside(e: MouseEvent) {
+      if (scopeDropdownRef.current && !scopeDropdownRef.current.contains(e.target as Node)) {
+        setDocDropdownOpen(false);
+      }
+      if (modeDropdownRef.current && !modeDropdownRef.current.contains(e.target as Node)) {
+        setModeDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
   }, []);
 
   const changeTheme = (newTheme: "light" | "dark") => {
@@ -724,19 +739,27 @@ export default function Home() {
             </div>
 
             {/* Document Targeting Scope Selector */}
-            <div className="doc-target-dropdown-wrap">
+            <div className="doc-target-dropdown-wrap" ref={scopeDropdownRef}>
               <button
-                className={`doc-target-btn ${selectedDocId ? "targeted" : ""}`}
-                onClick={() => setDocDropdownOpen(!docDropdownOpen)}
+                type="button"
+                className={`doc-target-btn ${selectedDocId ? "targeted" : ""} ${docDropdownOpen ? "open" : ""}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDocDropdownOpen((prev) => !prev);
+                }}
+                title="Filter query scope to specific document"
+                aria-haspopup="true"
+                aria-expanded={docDropdownOpen}
               >
                 <Filter size={13} />
                 <span>{activeDoc ? `Target: ${activeDoc.filename}` : "Scope: All Documents"}</span>
-                <ChevronDown size={13} />
+                <ChevronDown size={13} className={`doc-target-chevron ${docDropdownOpen ? "open" : ""}`} />
               </button>
 
               {docDropdownOpen && (
-                <div className="doc-target-menu">
+                <div className="doc-target-menu" role="menu">
                   <button
+                    type="button"
                     className={`doc-target-menu-item ${!selectedDocId ? "active" : ""}`}
                     onClick={() => {
                       setSelectedDocId(null);
@@ -744,26 +767,33 @@ export default function Home() {
                       setNotice("Query scope set to search across all documents.");
                     }}
                   >
-                    <span>All Documents ({documents.length} sources)</span>
+                    <span>All Documents ({documents.length} source{documents.length === 1 ? "" : "s"})</span>
                     {!selectedDocId && <Check size={13} />}
                   </button>
 
-                  {documents.map((doc) => (
-                    <button
-                      key={doc.id}
-                      className={`doc-target-menu-item ${selectedDocId === doc.id ? "active" : ""}`}
-                      onClick={() => {
-                        setSelectedDocId(doc.id);
-                        setDocDropdownOpen(false);
-                        setNotice(`Query scope restricted to "${doc.filename}".`);
-                      }}
-                    >
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 190 }}>
-                        {doc.filename}
-                      </span>
-                      {selectedDocId === doc.id && <Check size={13} />}
-                    </button>
-                  ))}
+                  {documents.length === 0 ? (
+                    <div className="doc-target-empty-hint">
+                      <span>No individual files uploaded yet. Upload a PDF or DOCX in the sidebar to target specific documents.</span>
+                    </div>
+                  ) : (
+                    documents.map((doc) => (
+                      <button
+                        key={doc.id}
+                        type="button"
+                        className={`doc-target-menu-item ${selectedDocId === doc.id ? "active" : ""}`}
+                        onClick={() => {
+                          setSelectedDocId(doc.id);
+                          setDocDropdownOpen(false);
+                          setNotice(`Query scope restricted to "${doc.filename}".`);
+                        }}
+                      >
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 190 }}>
+                          {doc.filename}
+                        </span>
+                        {selectedDocId === doc.id && <Check size={13} />}
+                      </button>
+                    ))
+                  )}
                 </div>
               )}
             </div>
@@ -1247,11 +1277,14 @@ export default function Home() {
                   />
 
                   {/* Mode Selector Dropdown */}
-                  <div className="mode-selector-wrap">
+                  <div className="mode-selector-wrap" ref={modeDropdownRef}>
                     <button
                       type="button"
                       className={`mode-selector-btn ${modeDropdownOpen ? "open" : ""}`}
-                      onClick={() => setModeDropdownOpen(!modeDropdownOpen)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setModeDropdownOpen((prev) => !prev);
+                      }}
                       title={`Answer mode: ${activeMode.label} - ${activeMode.desc}`}
                       aria-label="Select answer mode"
                     >

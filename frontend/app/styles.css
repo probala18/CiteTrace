@@ -648,7 +648,7 @@ button {
   justify-content: space-between;
   padding: 14px 28px;
   position: relative;
-  z-index: 10;
+  z-index: 50;
   flex-shrink: 0;
 }
 
@@ -676,6 +676,7 @@ button {
 /* Document Target Selector in Workspace */
 .doc-target-dropdown-wrap {
   position: relative;
+  z-index: 60;
 }
 
 .doc-target-btn {
@@ -691,6 +692,8 @@ button {
   color: var(--text-main);
   box-shadow: var(--shadow-sm);
   transition: all 0.15s ease;
+  cursor: pointer;
+  user-select: none;
 }
 
 .doc-target-btn:hover {
@@ -701,24 +704,34 @@ button {
 .doc-target-btn.targeted {
   border-color: var(--lime-primary);
   background-color: var(--lime-light);
-  color: var(--text-on-lime);
+  color: var(--lime-primary);
+}
+
+.doc-target-chevron {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  color: var(--text-muted);
+}
+
+.doc-target-chevron.open {
+  transform: rotate(180deg);
 }
 
 .doc-target-menu {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 6px);
   right: 0;
-  margin-top: 6px;
-  background: var(--bg-surface);
+  background: var(--bg-surface-elevated, var(--bg-surface));
   border: 1px solid var(--border-light);
   border-radius: 12px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
   padding: 6px;
-  min-width: 240px;
-  z-index: 50;
+  min-width: 250px;
+  max-width: 320px;
+  z-index: 1000;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+  animation: popoverFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .doc-target-menu-item {
@@ -731,6 +744,10 @@ button {
   color: var(--text-secondary);
   text-align: left;
   transition: all 0.12s ease;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 100%;
 }
 
 .doc-target-menu-item:hover {
@@ -742,6 +759,15 @@ button {
   background-color: var(--lime-light);
   color: var(--lime-primary);
   font-weight: 600;
+}
+
+.doc-target-empty-hint {
+  padding: 8px 10px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 2px;
 }
 
 /* Scrollable Content Container */
@@ -1487,16 +1513,20 @@ button {
   border-radius: 12px;
   background-color: var(--lime-light);
   border: 1px solid var(--lime-primary);
-  color: var(--text-on-lime);
+  color: var(--lime-primary);
   font-size: 11.5px;
   font-weight: 600;
 }
 
 .active-target-pill-clear {
-  color: var(--text-on-lime);
+  color: var(--lime-primary);
   display: flex;
   align-items: center;
-  opacity: 0.7;
+  opacity: 0.8;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
 }
 
 .active-target-pill-clear:hover {
@@ -1643,12 +1673,14 @@ button {
   padding: 1px 6px;
   border-radius: 6px;
   background-color: var(--bg-subtle);
-  color: var(--text-muted);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
 }
 
 .mode-popover-item.active .mode-popover-tag {
-  background-color: var(--bg-surface);
-  color: var(--text-on-lime);
+  background-color: rgba(142, 224, 27, 0.18);
+  color: var(--lime-primary);
+  border: 1px solid rgba(142, 224, 27, 0.35);
 }
 
 .mode-popover-desc {
@@ -2013,7 +2045,7 @@ button {
 
 .settings-preset-chip:hover {
   background: var(--lime-light);
-  color: var(--text-on-lime);
+  color: var(--lime-primary);
   border-color: var(--lime-primary);
 }
 
@@ -2405,7 +2437,7 @@ button {
 
 .inspect-passage-btn:hover {
   background: var(--lime-light);
-  color: var(--text-on-lime);
+  color: var(--lime-primary);
   border-color: var(--lime-primary);
 }
 
