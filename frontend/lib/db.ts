@@ -5,7 +5,12 @@ let initialized = false;
 
 export function getDb(): Client {
   if (!client) {
-    const url = process.env.TURSO_DATABASE_URL || "file:evidence.db";
+    let url = process.env.TURSO_DATABASE_URL;
+    if (!url) {
+      // In serverless environments like Vercel, the root is read-only. Use /tmp
+      const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+      url = isServerless ? "file:/tmp/evidence.db" : "file:evidence.db";
+    }
     const authToken = process.env.TURSO_AUTH_TOKEN;
     client = createClient({
       url,
