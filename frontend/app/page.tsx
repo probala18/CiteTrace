@@ -378,7 +378,8 @@ export default function Home() {
     setError("");
     setNotice("");
     try {
-      const res = await fetch(`${API}/documents/${doc.id}`, { method: "DELETE" });
+      const target = (config.apiUrl || "/api").trim().replace(/\/$/, "");
+      const res = await fetch(`${target}/documents/${doc.id}`, { method: "DELETE", headers: getHeaders() });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(readableError(body, "Delete failed."));
       setNotice(`Deleted ${doc.filename}.`);
@@ -1186,6 +1187,8 @@ export default function Home() {
             </div>
           </div>
         </main>
+      </div>
+
       {/* Settings Modal */}
       {showSettings && (
         <div className="settings-modal-backdrop" onClick={() => setShowSettings(false)}>
