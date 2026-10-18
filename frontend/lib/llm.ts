@@ -32,10 +32,12 @@ function extractJson(raw: string): any {
 export async function jsonCompletion(
   system: string,
   user: string,
-  modelOverride?: string
+  modelOverride?: string,
+  apiKeyOverride?: string,
+  baseUrlOverride?: string
 ): Promise<any> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const baseUrl = (process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1").replace(/\/$/, "");
+  const apiKey = apiKeyOverride || process.env.OPENAI_API_KEY;
+  const baseUrl = (baseUrlOverride || process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1").replace(/\/$/, "");
   const model = modelOverride || process.env.LLM_MODEL || "openrouter/free";
 
   if (!apiKey) {

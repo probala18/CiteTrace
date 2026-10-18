@@ -2,6 +2,7 @@
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useState, useRef } from "react";
 import {
+  AlertCircle,
   AlertTriangle,
   ArrowDownToLine,
   ArrowUpRight,
@@ -10,10 +11,15 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  Cpu,
+  Eye,
+  EyeOff,
   FileCheck,
   FileText,
   Filter,
+  Globe,
   History,
+  Key,
   Layers,
   LoaderCircle,
   Moon,
@@ -21,8 +27,11 @@ import {
   Paperclip,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Save,
   Search,
   Send,
+  Settings,
   ShieldCheck,
   Sun,
   Trash2,
@@ -31,7 +40,19 @@ import {
   XCircle
 } from "lucide-react";
 
-const API = (process.env.NEXT_PUBLIC_API_URL || "/api").replace(/\/$/, "");
+type BackendConfig = {
+  apiUrl: string;
+  apiKey: string;
+  apiBaseUrl: string;
+  llmModel: string;
+};
+
+const DEFAULT_CONFIG: BackendConfig = {
+  apiUrl: process.env.NEXT_PUBLIC_API_URL || "/api",
+  apiKey: "",
+  apiBaseUrl: "https://openrouter.ai/api/v1",
+  llmModel: "openrouter/free",
+};
 
 type DocumentItem = {
   id: string;
@@ -155,20 +176,37 @@ export default function Home() {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // Settings & Configuration state
+  const [config, setConfig] = useState<BackendConfig>(DEFAULT_CONFIG);
+  const [tempConfig, setTempConfig] = useState<BackendConfig>(DEFAULT_CONFIG);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [testStatus, setTestStatus] = useState<"idle" | "testing" | "success" | "error">("idle");
+  const [testMessage, setTestMessage] = useState("");
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const sidebarFileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("citetrace_theme") as "light" | "dark" | null;
-      if (saved === "light" || saved === "dark") {
-        setTheme(saved);
-        document.documentElement.setAttribute("data-theme", saved);
-        return;
+      const savedTheme = localStorage.getItem("citetrace_theme") as "light" | "dark" | null;
+      if (savedTheme === "light" || savedTheme === "dark") {
+        setTheme(savedTheme);
+        document.documentElement.setAttribute("data-theme", savedTheme);
+      } else {
+        document.documentElement.setAttribute("data-theme", "dark");
       }
     } catch {}
-    document.documentElement.setAttribute("data-theme", "dark");
+
+    try {
+      const savedConfig = localStorage.getItem("citetrace_backend_config");
+      if (savedConfig) {
+        const parsed = JSON.parse(savedConfig);
+        setConfig((prev) => ({ ...prev, ...parsed }));
+        setTempConfig((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch {}
   }, []);
 
   const changeTheme = (newTheme: "light" | "dark") => {
@@ -179,10 +217,19 @@ export default function Home() {
     document.documentElement.setAttribute("data-theme", newTheme);
   };
 
-  const refreshDocuments = useCallback(async () => {
+  const getHeaders = useCallback((extra: Record<string, string> = {}) => {
+    const headers: Record<string, string> = { ...extra };
+    if (config.apiKey.trim()) headers["x-openai-api-key"] = config.apiKey.trim();
+    if (config.apiBaseUrl.trim()) headers["x-openai-base-url"] = config.apiBaseUrl.trim();
+    if (config.llmModel.trim()) headers["x-llm-model"] = config.llmModel.trim();
+    return headers;
+  }, [config]);
+
+  const refreshDocuments = useCallback(async (overrideApi?: string) => {
     setLoadingDocs(true);
+    const target = (overrideApi || config.apiUrl || "/api").trim().replace(/\/$/, "");
     try {
-      const res = await fetch(`${API}/documents`, { cache: "no-store" });
+      const res = await fetch(`${target}/documents`, { cache: "no-store", headers: getHeaders() });
       if (!res.ok) throw new Error("Could not connect to backend. Please check server.");
       const list: DocumentItem[] = await res.json();
       setDocuments(list);
@@ -194,7 +241,7 @@ export default function Home() {
     } finally {
       setLoadingDocs(false);
     }
-  }, []);
+  }, [config.apiUrl, getHeaders]);
 
   useEffect(() => {
     void refreshDocuments();
@@ -208,9 +255,10 @@ export default function Home() {
     setError("");
     setNotice("");
     try {
+      const target = (config.apiUrl || "/api").trim().replace(/\/$/, "");
       const data = new FormData();
       data.append("file", file);
-      const res = await fetch(`${API}/documents`, { method: "POST", body: data });
+      const res = await fetch(`${target}/documents`, { method: "POST", body: data, headers: getHeaders() });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(readableError(body, "Upload failed."));
       setNotice(`Indexed "${body.filename}" into ${body.chunk_count} evidence chunks.`);
@@ -252,16 +300,21 @@ export default function Home() {
     setNotice("");
     setResult(null);
     try {
-      const payload: { question: string; document_id?: string; mode: string } = {
+      const target = (config.apiUrl || "/api").trim().replace(/\/$/, "");
+      const payload: any = {
         question: text,
         mode: mode,
       };
       if (docIdToUse) {
         payload.document_id = docIdToUse;
       }
-      const res = await fetch(`${API}/query`, {
+      if (config.apiKey.trim()) payload.api_key = config.apiKey.trim();
+      if (config.apiBaseUrl.trim()) payload.api_base_url = config.apiBaseUrl.trim();
+      if (config.llmModel.trim()) payload.llm_model = config.llmModel.trim();
+
+      const res = await fetch(`${target}/query`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(payload)
       });
       const body = await res.json().catch(() => ({}));
@@ -272,6 +325,51 @@ export default function Home() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function testBackendConnection() {
+    setTestStatus("testing");
+    setTestMessage("Pinging backend endpoint...");
+    const target = (tempConfig.apiUrl || "/api").trim().replace(/\/$/, "");
+    const startTime = Date.now();
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(`${target}/documents`, {
+        signal: controller.signal,
+        cache: "no-store",
+        headers: tempConfig.apiKey ? { "x-openai-api-key": tempConfig.apiKey.trim() } : {}
+      });
+      clearTimeout(timeoutId);
+      const elapsed = Date.now() - startTime;
+      if (res.ok) {
+        const docs = await res.json().catch(() => []);
+        setTestStatus("success");
+        setTestMessage(`Connected to "${target}" (${res.status} OK in ${elapsed}ms) - ${Array.isArray(docs) ? docs.length : 0} document(s) detected.`);
+      } else {
+        setTestStatus("error");
+        setTestMessage(`Backend returned status ${res.status}: ${res.statusText}`);
+      }
+    } catch (e: any) {
+      setTestStatus("error");
+      setTestMessage(e.name === "AbortError" ? "Connection timed out after 6 seconds." : (e.message || "Failed to reach endpoint."));
+    }
+  }
+
+  function saveSettings() {
+    setConfig({ ...tempConfig });
+    try {
+      localStorage.setItem("citetrace_backend_config", JSON.stringify(tempConfig));
+    } catch {}
+    setShowSettings(false);
+    setNotice("Settings applied successfully.");
+    void refreshDocuments(tempConfig.apiUrl);
+  }
+
+  function resetToDefaults() {
+    setTempConfig({ ...DEFAULT_CONFIG });
+    setTestStatus("idle");
+    setTestMessage("");
   }
 
   // Remove Document handler
@@ -369,6 +467,22 @@ export default function Home() {
               <Moon size={15} />
             </button>
           </div>
+
+          {/* Settings Trigger */}
+          <button
+            className="settings-trigger-btn"
+            onClick={() => {
+              setTempConfig({ ...config });
+              setTestStatus("idle");
+              setTestMessage("");
+              setShowSettings(true);
+            }}
+            title="Backend & AI Configuration"
+            aria-label="Settings"
+          >
+            <Settings size={15} />
+            <span>Settings</span>
+          </button>
         </div>
       </header>
 
@@ -1072,7 +1186,243 @@ export default function Home() {
             </div>
           </div>
         </main>
-      </div>
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="settings-modal-backdrop" onClick={() => setShowSettings(false)}>
+          <div className="settings-modal-card" onClick={(e) => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="settings-modal-header">
+              <div className="settings-modal-title-group">
+                <div className="settings-modal-icon-badge">
+                  <Settings size={18} />
+                </div>
+                <div>
+                  <h3 className="settings-modal-title">Backend & AI Settings</h3>
+                  <p className="settings-modal-subtitle">
+                    Configure server endpoints, AI credentials, and model routing.
+                  </p>
+                </div>
+              </div>
+              <button
+                className="settings-modal-close"
+                onClick={() => setShowSettings(false)}
+                title="Close settings"
+                aria-label="Close settings"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body: Field and Value inputs */}
+            <div className="settings-modal-body">
+              {/* Field 1: Backend API URL */}
+              <div className="settings-field-group">
+                <div className="settings-field-label-row">
+                  <label className="settings-field-label">
+                    <Globe size={14} /> Backend API URL
+                  </label>
+                  <span className="settings-field-tag">Required</span>
+                </div>
+                <div className="settings-input-wrapper">
+                  <input
+                    type="text"
+                    className="settings-input"
+                    value={tempConfig.apiUrl}
+                    onChange={(e) => setTempConfig({ ...tempConfig, apiUrl: e.target.value })}
+                    placeholder="/api (Vercel Serverless) or http://localhost:8000/api"
+                  />
+                </div>
+                <div className="settings-presets-row">
+                  <span className="settings-presets-label">Presets:</span>
+                  <button
+                    type="button"
+                    className="settings-preset-chip"
+                    onClick={() => setTempConfig({ ...tempConfig, apiUrl: "/api" })}
+                  >
+                    Vercel Serverless (/api)
+                  </button>
+                  <button
+                    type="button"
+                    className="settings-preset-chip"
+                    onClick={() => setTempConfig({ ...tempConfig, apiUrl: "http://localhost:8000/api" })}
+                  >
+                    Local FastAPI (http://localhost:8000/api)
+                  </button>
+                </div>
+                <div className="settings-field-help">
+                  The HTTP endpoint used for document uploads, chunk storage, and verified RAG queries.
+                </div>
+              </div>
+
+              {/* Field 2: OpenRouter / OpenAI API Key */}
+              <div className="settings-field-group">
+                <div className="settings-field-label-row">
+                  <label className="settings-field-label">
+                    <Key size={14} /> AI Provider API Key (OpenRouter / OpenAI)
+                  </label>
+                  <span className="settings-field-tag secret">Secret</span>
+                </div>
+                <div className="settings-input-wrapper">
+                  <input
+                    type={showApiKey ? "text" : "password"}
+                    className="settings-input"
+                    value={tempConfig.apiKey}
+                    onChange={(e) => setTempConfig({ ...tempConfig, apiKey: e.target.value })}
+                    placeholder="sk-or-v1-... or sk-proj-..."
+                  />
+                  <button
+                    type="button"
+                    className="settings-input-toggle-btn"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    title={showApiKey ? "Hide key" : "Show key"}
+                    aria-label="Toggle key visibility"
+                  >
+                    {showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+                <div className="settings-field-help">
+                  Optional in browser if already configured in Vercel or local .env environment variables.
+                </div>
+              </div>
+
+              {/* Field 3: AI Base URL */}
+              <div className="settings-field-group">
+                <div className="settings-field-label-row">
+                  <label className="settings-field-label">
+                    <Globe size={14} /> AI Provider Base URL
+                  </label>
+                </div>
+                <div className="settings-input-wrapper">
+                  <input
+                    type="text"
+                    className="settings-input"
+                    value={tempConfig.apiBaseUrl}
+                    onChange={(e) => setTempConfig({ ...tempConfig, apiBaseUrl: e.target.value })}
+                    placeholder="https://openrouter.ai/api/v1"
+                  />
+                </div>
+                <div className="settings-presets-row">
+                  <span className="settings-presets-label">Presets:</span>
+                  <button
+                    type="button"
+                    className="settings-preset-chip"
+                    onClick={() => setTempConfig({ ...tempConfig, apiBaseUrl: "https://openrouter.ai/api/v1" })}
+                  >
+                    OpenRouter
+                  </button>
+                  <button
+                    type="button"
+                    className="settings-preset-chip"
+                    onClick={() => setTempConfig({ ...tempConfig, apiBaseUrl: "https://api.openai.com/v1" })}
+                  >
+                    OpenAI Direct
+                  </button>
+                </div>
+                <div className="settings-field-help">
+                  Base endpoint for chat completions and vector embeddings.
+                </div>
+              </div>
+
+              {/* Field 4: LLM Model */}
+              <div className="settings-field-group">
+                <div className="settings-field-label-row">
+                  <label className="settings-field-label">
+                    <Cpu size={14} /> LLM Model Identifier
+                  </label>
+                </div>
+                <div className="settings-input-wrapper">
+                  <input
+                    type="text"
+                    className="settings-input"
+                    value={tempConfig.llmModel}
+                    onChange={(e) => setTempConfig({ ...tempConfig, llmModel: e.target.value })}
+                    placeholder="openrouter/free or google/gemini-2.0-flash-exp:free"
+                  />
+                </div>
+                <div className="settings-presets-row">
+                  <span className="settings-presets-label">Popular:</span>
+                  <button
+                    type="button"
+                    className="settings-preset-chip"
+                    onClick={() => setTempConfig({ ...tempConfig, llmModel: "openrouter/free" })}
+                  >
+                    openrouter/free
+                  </button>
+                  <button
+                    type="button"
+                    className="settings-preset-chip"
+                    onClick={() => setTempConfig({ ...tempConfig, llmModel: "google/gemini-2.0-flash-exp:free" })}
+                  >
+                    gemini-2.0-flash
+                  </button>
+                  <button
+                    type="button"
+                    className="settings-preset-chip"
+                    onClick={() => setTempConfig({ ...tempConfig, llmModel: "meta-llama/llama-3.3-70b-instruct:free" })}
+                  >
+                    llama-3.3-70b
+                  </button>
+                </div>
+                <div className="settings-field-help">
+                  Identifier of the model used to extract atomic claims and evaluate citations.
+                </div>
+              </div>
+
+              {/* Connection Test Output Banner */}
+              {testStatus !== "idle" && (
+                <div className={`settings-test-banner ${testStatus}`}>
+                  {testStatus === "testing" && <LoaderCircle size={15} className="spin" />}
+                  {testStatus === "success" && <CheckCircle2 size={15} />}
+                  {testStatus === "error" && <AlertCircle size={15} />}
+                  <span>{testMessage}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div className="settings-modal-footer">
+              <div className="settings-footer-left">
+                <button
+                  type="button"
+                  className="settings-secondary-btn"
+                  onClick={testBackendConnection}
+                  disabled={testStatus === "testing"}
+                >
+                  {testStatus === "testing" ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
+                  <span>Test Connection</span>
+                </button>
+                <button
+                  type="button"
+                  className="settings-text-btn"
+                  onClick={resetToDefaults}
+                  title="Reset to defaults"
+                >
+                  <RotateCcw size={13} />
+                  <span>Reset</span>
+                </button>
+              </div>
+
+              <div className="settings-footer-right">
+                <button
+                  type="button"
+                  className="settings-cancel-btn"
+                  onClick={() => setShowSettings(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="settings-save-btn"
+                  onClick={saveSettings}
+                >
+                  <Save size={14} />
+                  <span>Save Configuration</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -17,7 +17,15 @@ export async function POST(req: NextRequest) {
     const documentId = typeof document_id === "string" && document_id.trim() ? document_id.trim() : null;
     const answerMode = typeof mode === "string" && mode.trim() ? mode.trim() : "precise";
 
-    const result = await answerQuestion(question.trim(), topKNumber, documentId, answerMode);
+    const apiKey = req.headers.get("x-openai-api-key") || body.api_key || undefined;
+    const baseUrl = req.headers.get("x-openai-base-url") || body.api_base_url || undefined;
+    const model = req.headers.get("x-llm-model") || body.llm_model || undefined;
+
+    const result = await answerQuestion(question.trim(), topKNumber, documentId, answerMode, {
+      apiKey,
+      baseUrl,
+      model,
+    });
     return NextResponse.json(result);
   } catch (error: any) {
     return NextResponse.json(
