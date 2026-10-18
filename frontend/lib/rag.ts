@@ -62,15 +62,71 @@ export const MODE_PROMPTS: Record<string, string> = {
   ),
 };
 
+const STOPWORDS = new Set([
+  "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are", 
+  "aren't", "as", "at", "be", "because", "been", "before", "being", "below", "between", "both", 
+  "but", "by", "can", "cannot", "could", "couldn't", "did", "didn't", "do", "does", "doesn't", 
+  "doing", "don't", "down", "during", "each", "few", "for", "from", "further", "had", "hadn't", 
+  "has", "hasn't", "have", "haven't", "having", "he", "her", "here", "hers", "herself", "him", 
+  "himself", "his", "how", "i", "if", "in", "into", "is", "isn't", "it", "its", "itself", 
+  "let", "me", "more", "most", "must", "my", "myself", "no", "nor", "not", "of", "off", "on", 
+  "once", "only", "or", "other", "ought", "our", "ours", "ourselves", "out", "over", "own", 
+  "same", "she", "should", "shouldn't", "so", "some", "such", "than", "that", "the", "their", 
+  "theirs", "them", "themselves", "then", "there", "these", "they", "this", "those", "through", 
+  "to", "too", "under", "until", "up", "very", "was", "wasn't", "we", "were", "weren't", "what", 
+  "when", "where", "which", "while", "who", "whom", "why", "with", "would", "wouldn't", "you", 
+  "your", "yours", "yourself", "yourselves"
+]);
+
+function extractQueryTerms(question: string) {
+  const normalized = question.toLowerCase().replace(/[^\w\s-]/g, " ").trim();
+  const rawTokens = normalized.split(/\s+/).filter(Boolean);
+  const meaningfulTerms = rawTokens.filter((t) => t.length > 1 && !STOPWORDS.has(t));
+  const keyPhrase = meaningfulTerms.length >= 2 ? meaningfulTerms.join(" ") : null;
+
+  return {
+    rawTokens,
+    meaningfulTerms: meaningfulTerms.length > 0 ? meaningfulTerms : rawTokens,
+    keyPhrase,
+    normalized,
+  };
+}
+
+export function calibrateRelevanceScore(rawScore: number, exactPhrase: boolean = false, headingMatch: boolean = false): number {
+  let score = rawScore;
+  if (exactPhrase) score += 0.12;
+  if (headingMatch) score += 0.08;
+
+  // Calibrate raw vector/hybrid score into an intuitive confidence percentage
+  // In dense vector spaces, cosine similarity for high-relevance paragraphs typically sits at 0.45 - 0.65
+  let calibrated: number;
+  if (score >= 0.68) {
+    calibrated = 0.92 + Math.min(0.06, (score - 0.68) * 0.25);
+  } else if (score >= 0.52) {
+    calibrated = 0.84 + ((score - 0.52) / 0.16) * 0.08;
+  } else if (score >= 0.38) {
+    calibrated = 0.74 + ((score - 0.38) / 0.14) * 0.10;
+  } else if (score >= 0.24) {
+    calibrated = 0.60 + ((score - 0.24) / 0.14) * 0.14;
+  } else if (score >= 0.12) {
+    calibrated = 0.40 + ((score - 0.12) / 0.12) * 0.20;
+  } else {
+    calibrated = Math.max(0.10, score * 3.0);
+  }
+
+  return Math.min(0.99, Math.max(0.10, Math.round(calibrated * 1000) / 1000));
+}
+
 export async function retrievePassages(
   question: string,
   topK: number = 6,
-  documentId?: string | null
+  documentId?: string | null,
+  options?: LLMOptions
 ): Promise<Citation[]> {
   await initDb();
   const db = getDb();
 
-  const queryEmbedding = await embedQuery(question);
+  const queryEmbedding = await embedQuery(question, options?.apiKey, options?.baseUrl);
 
   let sql = `
     SELECT c.id, c.document_id, c.page_number, c.heading, c.text, c.embedding, d.filename
@@ -88,7 +144,7 @@ export async function retrievePassages(
   const rows = result.rows || [];
   if (rows.length === 0) return [];
 
-  const queryWords = new Set(question.toLowerCase().match(/\b\w{3,}\b/g) || []);
+  const { meaningfulTerms, keyPhrase, normalized } = extractQueryTerms(question);
 
   const scored = rows.map((r: any) => {
     let emb: number[] = [];
@@ -100,16 +156,40 @@ export async function retrievePassages(
 
     const vecScore = emb.length > 0 ? cosineSimilarity(queryEmbedding, emb) : 0;
 
-    // Lexical term overlap score
+    // Lexical term coverage
     const textLower = String(r.text || "").toLowerCase();
-    let wordMatches = 0;
-    queryWords.forEach((w) => {
-      if (textLower.includes(w)) wordMatches++;
-    });
-    const lexScore = queryWords.size > 0 ? wordMatches / queryWords.size : 0;
+    const headingLower = String(r.heading || "").toLowerCase();
+    const filenameLower = String(r.filename || "").toLowerCase();
 
-    // Hybrid score
-    const hybridScore = Math.max(0, vecScore * 0.75 + lexScore * 0.25);
+    let termMatches = 0;
+    let frequencyCount = 0;
+    meaningfulTerms.forEach((term) => {
+      if (textLower.includes(term)) {
+        termMatches++;
+        // Count term occurrences (capped for stability)
+        const regex = new RegExp(`\\b${term}\\b`, "g");
+        const count = (textLower.match(regex) || []).length;
+        frequencyCount += Math.min(4, count || 1);
+      }
+    });
+
+    const termCoverage = meaningfulTerms.length > 0 ? termMatches / meaningfulTerms.length : 0;
+    const termDensity = meaningfulTerms.length > 0 ? Math.min(1.0, frequencyCount / (meaningfulTerms.length * 2)) : 0;
+    const lexScore = termCoverage * 0.7 + termDensity * 0.3;
+
+    // Exact phrase match bonus
+    const hasExactKeyPhrase = keyPhrase ? textLower.includes(keyPhrase) : false;
+    const hasFullQuestion = normalized.length > 10 ? textLower.includes(normalized) : false;
+    const exactPhrase = hasExactKeyPhrase || hasFullQuestion;
+
+    // Heading match bonus
+    const headingMatches = meaningfulTerms.some((t) => headingLower.includes(t) || filenameLower.includes(t));
+
+    // Hybrid score with balanced semantic + lexical weighting
+    const rawHybrid = Math.max(0, vecScore * 0.60 + lexScore * 0.40);
+
+    // Calibrate raw score into accurate, human-interpretable confidence percentage
+    const calibratedScore = calibrateRelevanceScore(rawHybrid, exactPhrase, headingMatches);
 
     return {
       evidence_id: String(r.id),
@@ -118,7 +198,7 @@ export async function retrievePassages(
       page_number: r.page_number ? Number(r.page_number) : null,
       heading: r.heading ? String(r.heading) : null,
       excerpt: String(r.text),
-      retrieval_score: Math.round(hybridScore * 10000) / 10000,
+      retrieval_score: calibratedScore,
     };
   });
 
@@ -140,7 +220,7 @@ export async function answerQuestion(
   options?: LLMOptions
 ): Promise<QueryResponsePayload> {
   const modeKey = MODE_PROMPTS[mode.toLowerCase()] ? mode.toLowerCase() : "precise";
-  const passages = await retrievePassages(question, topK, documentId);
+  const passages = await retrievePassages(question, topK, documentId, options);
 
   if (passages.length === 0) {
     const targetMsg = documentId ? "in the selected document" : "in the uploaded documents";

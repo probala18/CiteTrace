@@ -79,9 +79,11 @@ export async function POST(req: NextRequest) {
     const docId = crypto.randomUUID();
     const now = new Date().toISOString();
 
-    // Generate embeddings for chunks
+    // Generate embeddings for chunks (forwarding optional user API key from headers)
+    const apiKey = req.headers.get("x-openai-api-key") || undefined;
+    const baseUrl = req.headers.get("x-openai-base-url") || undefined;
     const chunkTexts = chunks.map((c) => c.text);
-    const embeddings = await embedTexts(chunkTexts);
+    const embeddings = await embedTexts(chunkTexts, apiKey, baseUrl);
 
     // Insert document
     await db.execute({
