@@ -152,7 +152,7 @@ export default function Home() {
   const [queryHistory, setQueryHistory] = useState<{ query: string; docId: string | null; docName?: string; mode?: string }[]>([]);
 
   // UI state
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -160,8 +160,24 @@ export default function Home() {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
+    try {
+      const saved = localStorage.getItem("citetrace_theme") as "light" | "dark" | null;
+      if (saved === "light" || saved === "dark") {
+        setTheme(saved);
+        document.documentElement.setAttribute("data-theme", saved);
+        return;
+      }
+    } catch {}
+    document.documentElement.setAttribute("data-theme", "dark");
+  }, []);
+
+  const changeTheme = (newTheme: "light" | "dark") => {
+    setTheme(newTheme);
+    try {
+      localStorage.setItem("citetrace_theme", newTheme);
+    } catch {}
+    document.documentElement.setAttribute("data-theme", newTheme);
+  };
 
   const refreshDocuments = useCallback(async () => {
     setLoadingDocs(true);
@@ -338,7 +354,7 @@ export default function Home() {
           <div className="theme-toggle-group">
             <button
               className={`theme-btn ${theme === "light" ? "active" : ""}`}
-              onClick={() => setTheme("light")}
+              onClick={() => changeTheme("light")}
               title="Light theme"
               aria-label="Light theme"
             >
@@ -346,7 +362,7 @@ export default function Home() {
             </button>
             <button
               className={`theme-btn ${theme === "dark" ? "active" : ""}`}
-              onClick={() => setTheme("dark")}
+              onClick={() => changeTheme("dark")}
               title="Dark theme"
               aria-label="Dark theme"
             >
