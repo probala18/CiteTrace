@@ -13,33 +13,63 @@ export function computeSha256(buffer: Buffer): string {
 }
 
 export async function parsePdf(buffer: Buffer): Promise<{ text: string; pageCount: number; pages: { pageNumber: number; text: string }[] }> {
-  // Dynamic import of pdf-parse to avoid SSR issues
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const pdfParse = require("pdf-parse");
-  const data = await pdfParse(buffer);
-  const totalText = data.text || "";
-  const pageCount = data.numpages || 1;
+  const pdfModule = require("pdf-parse");
 
-  // Split text by form-feed or estimated page lengths
-  const rawPages = totalText.split("\f");
-  const pages: { pageNumber: number; text: string }[] = [];
+  // Modern pdf-parse v2+ with PDFParse class
+  if (pdfModule && pdfModule.PDFParse) {
+    const parser = new pdfModule.PDFParse({ data: buffer });
+    try {
+      const res = await parser.getText();
+      const totalText = String(res.text || "");
+      const pageCount = Number(res.total || (res.pages ? res.pages.length : 1));
+      const pages = (res.pages || [])
+        .map((p: any) => ({
+          pageNumber: Number(p.num || 1),
+          text: String(p.text || "").trim(),
+        }))
+        .filter((p: any) => p.text.length > 0);
 
-  if (rawPages.length > 1) {
-    rawPages.forEach((pageText: string, i: number) => {
-      const trimmed = pageText.trim();
-      if (trimmed) {
-        pages.push({ pageNumber: i + 1, text: trimmed });
+      return {
+        text: totalText,
+        pageCount: Math.max(pageCount, pages.length || 1),
+        pages: pages.length > 0 ? pages : [{ pageNumber: 1, text: totalText.trim() }],
+      };
+    } finally {
+      if (typeof parser.destroy === "function") {
+        await parser.destroy().catch(() => {});
       }
-    });
-  } else {
-    pages.push({ pageNumber: 1, text: totalText.trim() });
+    }
   }
 
-  return {
-    text: totalText,
-    pageCount: Math.max(pageCount, pages.length),
-    pages,
-  };
+  // Classic pdf-parse v1 function
+  const fn = typeof pdfModule === "function" ? pdfModule : pdfModule?.default;
+  if (typeof fn === "function") {
+    const data = await fn(buffer);
+    const totalText = String(data.text || "");
+    const pageCount = Number(data.numpages || 1);
+    const rawPages = totalText.split("\f");
+    const pages: { pageNumber: number; text: string }[] = [];
+
+    if (rawPages.length > 1) {
+      rawPages.forEach((pageText: string, i: number) => {
+        const trimmed = pageText.trim();
+        if (trimmed) {
+          pages.push({ pageNumber: i + 1, text: trimmed });
+        }
+      });
+    } else {
+      pages.push({ pageNumber: 1, text: totalText.trim() });
+    }
+
+    return {
+      text: totalText,
+      pageCount: Math.max(pageCount, pages.length || 1),
+      pages: pages.length > 0 ? pages : [{ pageNumber: 1, text: totalText.trim() }],
+    };
+  }
+
+  throw new Error("Unable to parse PDF: pdf-parse module format not recognized.");
 }
 
 export async function parseDocx(buffer: Buffer): Promise<{ text: string; pageCount: number | null; pages: { pageNumber: number | null; text: string }[] }> {
